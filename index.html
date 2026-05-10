@@ -1673,7 +1673,10 @@
             }
             vStream.addTrack(S.audioStream.getAudioTracks()[0]);
 
-            let mime = 'video/webm;codecs=vp9,opus';
+            // Tenta mp4 primeiro (compativel com iPhone/iPad/Android)
+            let mime = 'video/mp4;codecs=h264,aac';
+            if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/mp4';
+            if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm;codecs=vp9,opus';
             if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm;codecs=vp8,opus';
             if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm';
 
@@ -1684,7 +1687,7 @@
                 const blob = new Blob(S.recordedChunks, { type:'video/webm' });
                 const a = Object.assign(document.createElement('a'), {
                     href: URL.createObjectURL(blob),
-                    download: `aula_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.webm`,
+                    download: `aula_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.${mime.startsWith('video/mp4') ? 'mp4' : 'webm'}`,
                 });
                 a.click(); URL.revokeObjectURL(a.href); S.recordedChunks = [];
             };
