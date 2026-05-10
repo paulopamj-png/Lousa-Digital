@@ -423,6 +423,7 @@
 
                 <div class="divider"></div>
 
+                <button class="tool-btn" id="micBtn" title="Ativar/Desativar microfone"><span class="material-symbols-rounded">mic</span></button>
                 <button class="tool-btn" id="cameraBtn" title="Ativar/Desativar câmera"><span class="material-symbols-rounded">videocam</span></button>
 
                 <div class="divider"></div>
@@ -539,6 +540,9 @@
             tool: 'pen',
             color: '#1a1a1a',
             sizes: { pen: 4, pencil: 3, highlighter: 22, eraser: 30, text: 26, line: 4, rect: 4, circle: 4, select: 0 },
+            maxSizes: { pen: 80, pencil: 80, highlighter: 80, eraser: 200, text: 120, line: 40, rect: 40, circle: 40, select: 0 },
+            micMuted: false,
+            micStream: null,
             strokePoints: [],
             strokeCanvas: null,
             strokeCtx: null,
@@ -1076,6 +1080,7 @@
                 $$('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 state.tool = btn.dataset.tool;
+                sizeSlider.max = state.maxSizes[state.tool] || 80;
                 sizeSlider.value = state.sizes[state.tool] || 4;
                 if (state.tool !== 'text') {
                     textInput.style.display = 'none';
@@ -1270,6 +1275,38 @@
             $('#cameraBtn').classList.remove('active');
         }
 
+        async function toggleMic() {
+            if (state.micStream) {
+                state.micStream.getTracks().forEach(t => t.stop());
+                state.micStream = null;
+                state.micMuted = true;
+                $('#micBtn').classList.remove('active');
+                $('#micBtn').querySelector('.material-symbols-rounded').textContent = 'mic_off';
+                if (state.audioStream) {
+                    state.audioStream.getAudioTracks().forEach(t => { t.enabled = false; });
+                }
+                toast('Microfone desativado');
+            } else {
+                try {
+                    const constraints = state.audioDeviceId
+                        ? { audio: { deviceId: { exact: state.audioDeviceId } } }
+                        : { audio: true };
+                    state.micStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    state.micMuted = false;
+                    $('#micBtn').classList.add('active');
+                    $('#micBtn').querySelector('.material-symbols-rounded').textContent = 'mic';
+                    if (state.audioStream) {
+                        state.audioStream.getAudioTracks().forEach(t => { t.enabled = true; });
+                    }
+                    await refreshDevices();
+                    toast('Microfone ativado');
+                } catch (err) {
+                    toast('Não foi possível acessar o microfone');
+                }
+            }
+        }
+
+        $('#micBtn').addEventListener('click', toggleMic);
         $('#cameraBtn').addEventListener('click', toggleCamera);
 
         // PiP drag & resize
@@ -1378,6 +1415,13 @@
                     ? { deviceId: { exact: state.audioDeviceId } }
                     : true;
                 state.audioStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+                if (state.micMuted) {
+                    state.audioStream.getAudioTracks().forEach(t => { t.enabled = false; });
+                } else {
+                    state.micStream = state.audioStream;
+                    $('#micBtn').classList.add('active');
+                    $('#micBtn').querySelector('.material-symbols-rounded').textContent = 'mic';
+                }
                 await refreshDevices();
 
                 const out = document.createElement('canvas');
@@ -1585,6 +1629,8 @@
         // ============== INIT ==============
         function init() {
             buildColorPresets();
+            sizeSlider.max = state.maxSizes[state.tool];
+            sizeSlider.value = state.sizes[state.tool];
             state.pages.push(createPage());
             resizeCanvas();
             updatePageLabel();
