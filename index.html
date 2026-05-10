@@ -860,10 +860,14 @@
     }
 
     function getPos(e) {
-        const r  = drawLayer.getBoundingClientRect();
-        const sx = drawLayer.width  / r.width;
-        const sy = drawLayer.height / r.height;
-        return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy, p: e.pressure ?? 0.5 };
+        // e.offsetX/Y sao calculados internamente pelo navegador em relacao ao canvas,
+        // evitando erros de getBoundingClientRect durante aceleracao GPU (ativo na gravacao).
+        // Fallback para clientX se offsetX nao estiver disponivel.
+        const ox = e.offsetX ?? (e.clientX - drawLayer.getBoundingClientRect().left);
+        const oy = e.offsetY ?? (e.clientY - drawLayer.getBoundingClientRect().top);
+        const sx = drawLayer.width  / drawLayer.offsetWidth;
+        const sy = drawLayer.height / drawLayer.offsetHeight;
+        return { x: ox * sx, y: oy * sy, p: e.pressure ?? 0.5 };
     }
 
     function onPointerDown(e) {
@@ -1697,8 +1701,6 @@
             S.mediaRecorder.start(1000);
 
             S.isRecording = true; S.recordStartTime = Date.now();
-                // Ressincroniza canvas apos possivel mudanca de layout (timer aparecendo)
-                setTimeout(() => { savePage(); resizeCanvas(); }, 80);
             $('#recordBtn').classList.add('recording'); $('#recordIcon').textContent = 'stop';
             $('#recTimer').classList.add('visible');
             S.recordTimerInterval = setInterval(() => {
