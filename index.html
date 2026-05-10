@@ -849,8 +849,26 @@
         }
     }
 
-    function compositeStroke() {
-        dCtx.putImageData(S.baseSnapshot, 0, 0);
+    // Captura/restaura base usando canvas offscreen (GPU blit = muito mais rapido que putImageData)
+    function captureBase() {
+        if (!S.baseCanvas) {
+            S.baseCanvas = document.createElement('canvas');
+        }
+        if (S.baseCanvas.width !== drawLayer.width || S.baseCanvas.height !== drawLayer.height) {
+            S.baseCanvas.width  = drawLayer.width;
+            S.baseCanvas.height = drawLayer.height;
+        }
+        S.baseCanvas.getContext('2d').drawImage(drawLayer, 0, 0);
+    }
+
+    function restoreBase() {
+        if (!S.baseCanvas) return;
+        dCtx.clearRect(0, 0, drawLayer.width, drawLayer.height);
+        dCtx.drawImage(S.baseCanvas, 0, 0);
+    }
+
+        function compositeStroke() {
+        restoreBase();
         dCtx.save();
         if      (S.tool === 'highlighter') { dCtx.globalAlpha = 0.35; dCtx.globalCompositeOperation = 'multiply'; }
         else if (S.tool === 'pencil')      { dCtx.globalAlpha = 0.85; }
@@ -880,7 +898,7 @@
         if (S.tool === 'select') { selDown(pos); return; }
         pushHistory();
         S.isDrawing = true; S.startX = pos.x; S.startY = pos.y;
-        S.baseSnapshot = dCtx.getImageData(0, 0, drawLayer.width, drawLayer.height);
+        captureBase();
         if (['pen','pencil','highlighter','eraser'].includes(S.tool)) {
             S.strokePoints = [{ x:pos.x, y:pos.y, p:pos.p }];
             getStrokeBuf(); renderStroke(); compositeStroke();
@@ -903,7 +921,7 @@
             }
             renderStroke(); compositeStroke();
         } else if (['line','rect','circle'].includes(S.tool)) {
-            dCtx.putImageData(S.baseSnapshot, 0, 0);
+            restoreBase();
             dCtx.lineCap = dCtx.lineJoin = 'round';
             dCtx.lineWidth   = S.sizes[S.tool] * DPR;
             dCtx.strokeStyle = S.color;
@@ -931,7 +949,8 @@
             commitSel();
         }
         pushHistory();
-        S.baseSnapshot = dCtx.getImageData(0, 0, drawLayer.width, drawLayer.height);
+        captureBase();
+        S.baseSnapshot = S.baseCanvas; // referencia para selecao
         S.selection = { startX:pos.x, startY:pos.y, x:pos.x, y:pos.y, w:0, h:0, committed:false, dragging:false, imgData:null };
     }
     function selMove(e) {
@@ -943,7 +962,7 @@
         } else {
             s.x = Math.min(s.startX, pos.x); s.y = Math.min(s.startY, pos.y);
             s.w = Math.abs(pos.x - s.startX); s.h = Math.abs(pos.y - s.startY);
-            dCtx.putImageData(S.baseSnapshot, 0, 0);
+            restoreBase();
             dCtx.save(); dCtx.setLineDash([8,6]); dCtx.lineWidth = 2; dCtx.strokeStyle = '#1a73e8';
             dCtx.strokeRect(s.x, s.y, s.w, s.h); dCtx.restore();
         }
@@ -952,17 +971,17 @@
         const s = S.selection; if (!s) return;
         if (s.dragging) { s.dragging = false; return; }
         if (s.committed) return;
-        if (s.w < 8 || s.h < 8) { S.selection = null; if (S.baseSnapshot) dCtx.putImageData(S.baseSnapshot, 0, 0); return; }
-        dCtx.putImageData(S.baseSnapshot, 0, 0);
+        if (s.w < 8 || s.h < 8) { S.selection = null; if (S.baseCanvas) restoreBase(); return; }
+        restoreBase();
         s.imgData = dCtx.getImageData(s.x, s.y, s.w, s.h);
         dCtx.clearRect(s.x, s.y, s.w, s.h);
-        S.baseSnapshot = dCtx.getImageData(0, 0, drawLayer.width, drawLayer.height);
+        captureBase();
         s.committed = true; drawSelOverlay();
         try { drawLayer.releasePointerCapture(e.pointerId); } catch(_) {}
     }
     function drawSelOverlay() {
         const s = S.selection; if (!s || !s.committed) return;
-        dCtx.putImageData(S.baseSnapshot, 0, 0);
+        restoreBase();
         const tmp = document.createElement('canvas');
         tmp.width = s.imgData.width; tmp.height = s.imgData.height;
         tmp.getContext('2d').putImageData(s.imgData, 0, 0);
@@ -972,7 +991,7 @@
     }
     function commitSel() {
         const s = S.selection; if (!s || !s.committed) { S.selection = null; return; }
-        dCtx.putImageData(S.baseSnapshot, 0, 0);
+        restoreBase();
         const tmp = document.createElement('canvas');
         tmp.width = s.imgData.width; tmp.height = s.imgData.height;
         tmp.getContext('2d').putImageData(s.imgData, 0, 0);
