@@ -260,9 +260,10 @@
 
         #recTimer {
             font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px;
-            color: var(--text); padding: 0 8px 0 4px; min-width: 56px; display: none;
+            color: var(--text); padding: 0 8px 0 4px; min-width: 56px;
+            display: inline-block; visibility: hidden;
         }
-        #recTimer.visible { display: inline-block; }
+        #recTimer.visible { visibility: visible; }
         #recTimer .dot {
             display: inline-block; width: 8px; height: 8px;
             background: var(--danger); border-radius: 50%;
@@ -859,8 +860,10 @@
     }
 
     function getPos(e) {
-        const r = drawLayer.getBoundingClientRect();
-        return { x: (e.clientX - r.left) * DPR, y: (e.clientY - r.top) * DPR, p: e.pressure ?? 0.5 };
+        const r  = drawLayer.getBoundingClientRect();
+        const sx = drawLayer.width  / r.width;
+        const sy = drawLayer.height / r.height;
+        return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy, p: e.pressure ?? 0.5 };
     }
 
     function onPointerDown(e) {
@@ -1694,6 +1697,8 @@
             S.mediaRecorder.start(1000);
 
             S.isRecording = true; S.recordStartTime = Date.now();
+                // Ressincroniza canvas apos possivel mudanca de layout (timer aparecendo)
+                setTimeout(() => { savePage(); resizeCanvas(); }, 80);
             $('#recordBtn').classList.add('recording'); $('#recordIcon').textContent = 'stop';
             $('#recTimer').classList.add('visible');
             S.recordTimerInterval = setInterval(() => {
