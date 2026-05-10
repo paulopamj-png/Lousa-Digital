@@ -1,4 +1,4 @@
-﻿const CACHE = 'estudio-aulas-v17';
+﻿const CACHE = 'estudio-aulas-v22';
 const ASSETS = ['/', '/index.html', '/icone.png', '/manifest.json'];
 
 self.addEventListener('install', e => {
