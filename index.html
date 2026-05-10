@@ -40,6 +40,9 @@
 
         html, body {
             margin: 0; padding: 0; height: 100%; width: 100%;
+            max-width: 100%; /* TRAVA 1: Impede largura fantasma */
+            position: fixed; /* TRAVA 2: Ancoragem absoluta (o app não foge da tela) */
+            top: 0; left: 0; right: 0; bottom: 0;
             background: radial-gradient(ellipse at top, #2a3340 0%, var(--bg-app-2) 70%);
             font-family: 'Inter', system-ui, sans-serif;
             color: var(--text); overflow: hidden;
@@ -48,9 +51,11 @@
         }
 
         #app {
-            display: grid;
-            grid-template-rows: auto 1fr auto;
-            height: 100dvh; width: 100vw;
+            display: flex; /* Mudando de grid para flex (muito mais robusto aqui) */
+            flex-direction: column;
+            height: 100%; width: 100%;
+            max-width: 100%;
+            overflow: hidden;
         }
 
         #topbar {
@@ -58,6 +63,8 @@
             padding: 10px 18px;
             background: linear-gradient(180deg, rgba(0,0,0,0.25), transparent);
             z-index: 20;
+            flex-shrink: 0; /* Impede o cabeçalho de ser esmagado */
+            width: 100%; max-width: 100%;
         }
         .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
         .brand .logo {
@@ -96,7 +103,11 @@
 
         #stage {
             position: relative; padding: 6px 18px 12px;
-            display: grid; place-items: center; min-height: 0;
+            display: flex; align-items: center; justify-content: center;
+            flex-grow: 1; /* Ocupa todo o espaço livre do meio da tela */
+            min-height: 0; min-width: 0; /* TRAVA 3: Quebra o blowout de largura/altura */
+            width: 100%; max-width: 100%;
+            overflow: hidden;
         }
         #board-frame {
             position: relative; width: 100%; height: 100%;
@@ -217,6 +228,9 @@
 
         #toolbar {
             display: flex; justify-content: center; padding: 10px 18px 16px; z-index: 20;
+            flex-shrink: 0; 
+            width: 100%; max-width: 100%;
+            min-width: 0; /* Permite a rolagem invisível dos botões */
         }
         .toolbar-inner {
             display: flex; align-items: center; gap: 6px;
@@ -652,6 +666,7 @@
         isDrawing: false, startX: 0, startY: 0,
         baseSnapshot: null, strokePoints: [],
         strokeCanvas: null, strokeCtx: null,
+        strokeRect: null, baseCanvas: null,
         selection: null,
         micEnabled: true,
         cameraStream: null, audioStream: null, screenStream: null,
@@ -769,19 +784,33 @@
     function resizeCanvas() {
         if (resizeRaf) cancelAnimationFrame(resizeRaf);
         resizeRaf = requestAnimationFrame(async () => {
+            
+            // 1. A marreta do JS: Força a largura em pixels reais (ignora a teimosia do CSS)
+            document.body.style.width = window.innerWidth + 'px';
+            document.getElementById('app').style.width = window.innerWidth + 'px';
+
             const rect = board.getBoundingClientRect();
             if (rect.width < 4 || rect.height < 4) return;
             savePage();
+            
+            // 2. Garante número par para o MediaRecorder não decepar o lado direito da gravação
+            const safeW = Math.floor((rect.width * DPR) / 2) * 2;
+            const safeH = Math.floor((rect.height * DPR) / 2) * 2;
+
             [bgLayer, drawLayer].forEach(c => {
-                c.width  = Math.max(1, Math.floor(rect.width  * DPR));
-                c.height = Math.max(1, Math.floor(rect.height * DPR));
+                c.width  = safeW;
+                c.height = safeH;
+                
+                // 3. Trava o tamanho visual do canvas de forma absoluta
+                c.style.width = rect.width + 'px';
+                c.style.height = rect.height + 'px';
             });
+            
             bgCtx.setTransform(1,0,0,1,0,0);
             dCtx.setTransform(1,0,0,1,0,0);
             await loadPage(S.currentPage);
         });
     }
-
     function pushHistory() {
         try {
             S.history.push(drawLayer.toDataURL('image/png'));
@@ -878,27 +907,35 @@
     }
 
     function getPos(e) {
-        // e.offsetX/Y sao calculados internamente pelo navegador em relacao ao canvas,
-        // evitando erros de getBoundingClientRect durante aceleracao GPU (ativo na gravacao).
-        // Fallback para clientX se offsetX nao estiver disponivel.
-        const ox = e.offsetX ?? (e.clientX - drawLayer.getBoundingClientRect().left);
-        const oy = e.offsetY ?? (e.clientY - drawLayer.getBoundingClientRect().top);
-        const sx = drawLayer.width  / drawLayer.offsetWidth;
-        const sy = drawLayer.height / drawLayer.offsetHeight;
-        return { x: ox * sx, y: oy * sy, p: e.pressure ?? 0.5 };
+        // Correção: Busca as medidas em tempo real para cálculo perfeito da escala
+        const rect = drawLayer.getBoundingClientRect();
+        const sx = drawLayer.width  / rect.width;
+        const sy = drawLayer.height / rect.height;
+        
+        return {
+            x: (e.clientX - rect.left) * sx,
+            y: (e.clientY - rect.top)  * sy,
+            p: e.pressure ?? 0.5,
+        };
     }
 
     function onPointerDown(e) {
         if (S.penOnly && e.pointerType === 'touch') return;
         if (e.button && e.button !== 0) return;
         e.preventDefault();
+        
         drawLayer.setPointerCapture(e.pointerId);
+        
         const pos = getPos(e);
         if (S.tool === 'text')   { showTextInput(pos); return; }
         if (S.tool === 'select') { selDown(pos); return; }
+        
         pushHistory();
-        S.isDrawing = true; S.startX = pos.x; S.startY = pos.y;
+        S.isDrawing = true; // <-- AQUI COMEÇA A DESENHAR
+        S.startX = pos.x; 
+        S.startY = pos.y;
         captureBase();
+        
         if (['pen','pencil','highlighter','eraser'].includes(S.tool)) {
             S.strokePoints = [{ x:pos.x, y:pos.y, p:pos.p }];
             getStrokeBuf(); renderStroke(); compositeStroke();
@@ -935,8 +972,14 @@
     function onPointerUp(e) {
         if (S.tool === 'select') { selUp(e); return; }
         if (!S.isDrawing) return;
-        S.isDrawing = false; S.strokePoints = []; S.baseSnapshot = null;
-        dCtx.globalAlpha = 1; dCtx.globalCompositeOperation = 'source-over';
+        
+        // As linhas vitais que fazem a caneta soltar da lousa:
+        S.isDrawing = false; 
+        S.strokePoints = []; 
+        S.baseSnapshot = null; 
+        
+        dCtx.globalAlpha = 1; 
+        dCtx.globalCompositeOperation = 'source-over';
         try { drawLayer.releasePointerCapture(e.pointerId); } catch(_) {}
     }
 
